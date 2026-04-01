@@ -1,0 +1,308 @@
+DOCUMENTACAO LINHA A LINHA - OBRA SEGURA APP
+
+Objetivo:
+Este arquivo explica, de forma didatica, o que cada linha (ou pequeno conjunto direto de linhas) faz nos arquivos principais criados/alterados.
+
+Arquivos explicados:
+1) src/App.js
+2) src/HelmetGuidePage.js
+3) src/GogglesGuidePage.js
+4) src/styles.css
+
+====================================================================
+1) src/App.js - Explicacao linha a linha
+====================================================================
+
+L1: Importa hooks do React (useCallback, useEffect, useRef, useState).
+L2: Importa o modelo MobileNet para embeddings visuais.
+L3: Importa TensorFlow.js para processar imagem e tensores.
+L4: Importa a pagina de guia do capacete.
+L5: Importa a pagina de guia dos oculos.
+
+L7: Define o maximo de imagens de referencia que o usuario pode enviar.
+L8: Define o limiar minimo de similaridade para considerar deteccao positiva.
+L9-L20: Define os objetos de EPI navegaveis no cubo:
+- id interno
+- label para interface
+- classe CSS para cor do cubo
+
+L22-L29: Funcao normalizeVector(values).
+- Calcula a norma do vetor.
+- Se norma for 0, retorna vetor original.
+- Caso contrario, retorna vetor normalizado (cada componente dividido pela norma).
+
+L31-L42: Funcao cosineSimilarity(vectorA, vectorB).
+- Verifica compatibilidade de tamanho dos vetores.
+- Faz produto escalar.
+- Retorna similaridade cosseno (quanto maior, mais parecidos).
+
+L44-L51: Funcao readImageFromFile(file).
+- Cria um objeto Image.
+- Resolve Promise quando a imagem termina de carregar.
+- Rejeita Promise em erro de leitura.
+- Usa URL.createObjectURL para carregar o arquivo local.
+
+L53: Inicia componente principal App.
+
+L54: Ref do elemento video.
+L55: Ref do modelo de embedding carregado (MobileNet).
+L56: Ref para armazenar embeddings de referencia enviados pelo usuario.
+L57: Ref para guardar id do requestAnimationFrame.
+L58: Ref do stream da camera para liberar recursos no cleanup.
+L59: Ref de controle para limitar logs no console.
+L60: Ref do horario da ultima inferencia (controle de taxa).
+L61: Ref booleano para impedir inferencias concorrentes.
+
+L62: Estado da mensagem de deteccao exibida na tela.
+L63: Estado para mostrar/ocultar cubo.
+L64: Estado da similaridade atual mostrada no painel.
+L65: Estado do objeto selecionado (index no array PPE_OBJECTS).
+L66: Estado da pagina guia ativa (null, helmet ou goggles).
+L67-L69: Estado da mensagem de upload/referencia.
+L70: Seleciona o objeto atual a partir do indice.
+
+L72-L74: openSelectedGuidePage abre a pagina do objeto selecionado.
+L76-L78: closeGuidePage fecha qualquer pagina guia e volta para camera.
+L80-L84: showNextObject avanca para o proximo objeto (com ciclo).
+
+L86-L103: getEmbeddingFromElement(element).
+- Se modelo nao carregou, retorna null.
+- Converte pixels da imagem/video para tensor.
+- Redimensiona para 224x224.
+- Adiciona dimensao de batch.
+- Faz inferencia e extrai embedding.
+- Libera memoria do tensor resultante.
+- Retorna vetor normalizado.
+
+L105-L157: handleReferenceUpload(event).
+- Pega arquivos selecionados e limita ao maximo.
+- Se nao houver arquivo, sai.
+- Se modelo ainda nao carregou, informa no painel.
+- Mostra status de processamento.
+- Para cada arquivo:
+  - Carrega imagem.
+  - Extrai embedding.
+  - Libera URL temporaria.
+  - Salva embedding valido.
+- Salva embeddings no ref principal.
+- Atualiza mensagem com total e limiar.
+- Em erro, mostra mensagem de falha e loga no console.
+
+L159: useEffect para inicializar e manter loop de deteccao.
+L160: Flag local para saber se componente continua montado.
+
+L162-L168: scheduleNextDetection.
+- Se desmontou, nao agenda.
+- Caso contrario, agenda proxima iteracao no requestAnimationFrame.
+
+L170-L183: setUiState(newSimilarity, isDetected, message).
+- Atualiza showArCube somente se mudou.
+- Atualiza mensagem somente se mudou.
+- Atualiza score somente se variacao > 0.01 (reduz re-render inutil).
+
+L185-L246: detectObjects (loop principal).
+- Sai cedo se modelo/video indisponiveis.
+- Controla frequencia minima de inferencia (450ms).
+- Evita duas inferencias simultaneas.
+- Calcula bestSimilarity comparando frame atual com todos embeddings de referencia.
+- Se nao houver referencias:
+  - Mostra mensagem para enviar imagens.
+  - Finaliza ciclo atual.
+- Faz log periodico da similaridade.
+- Decide deteccao com base no limiar.
+- Atualiza UI (mensagem, cubo, score).
+- Libera trava de inferencia e agenda proximo ciclo.
+
+L248-L256: waitForVideoMetadata(videoElement).
+- Se metadado ja existe, resolve imediatamente.
+- Senao, espera evento onloadedmetadata.
+
+L258-L310: loadModelAndStartVideo.
+- Aguarda tf.ready.
+- Carrega MobileNet (versao leve para celular).
+- Tenta camera traseira com constraints de desempenho.
+- Se falhar, tenta camera padrao com mesmas constraints.
+- Salva stream no ref.
+- Vincula stream ao video.
+- Espera metadados e chama play.
+- Se ainda montado, inicia detectObjects.
+- Trata AbortError sem estourar.
+- Loga outros erros de inicializacao.
+
+L312: Executa inicializacao (loadModelAndStartVideo).
+
+L314-L326: Cleanup do effect.
+- Marca desmontado.
+- Remove lock de inferencia.
+- Cancela requestAnimationFrame pendente.
+- Para trilhas da camera para liberar hardware.
+
+L327: Dependencia do effect: getEmbeddingFromElement.
+
+L329-L393: Render JSX principal.
+
+L330: Container raiz com classe condicional para transicao de pagina.
+L331: Secao da camera.
+L332: Elemento de video ao vivo.
+
+L333-L365: Renderiza controles do cubo apenas quando showArCube for true.
+L334: Wrapper de controles do cubo.
+L335-L351: Botao do cubo (abre pagina do objeto atual).
+L343-L349: Cubo com classe dinamica (amarelo/vermelho).
+L353-L362: Botao de seta para proximo objeto.
+
+L366-L384: Painel de upload e status.
+L367-L369: Label do input de referencia.
+L370-L376: Input file para multiplas imagens.
+L377: Mensagem de status das referencias.
+L378-L380: Similaridade atual em percentual.
+L381-L383: Nome do objeto atual selecionado.
+
+L385-L387: Mensagem de deteccao em destaque.
+
+L390-L392: Secao de pagina guia; escolhe entre oculos/capacete pelo activeGuideId.
+
+L394: Fecha componente App.
+
+
+====================================================================
+2) src/HelmetGuidePage.js - Explicacao linha a linha
+====================================================================
+
+L1: Importa React.
+L3: Declara componente funcional HelmetGuidePage com prop onBack.
+L4-L5: Container semantico da pagina e associacao de titulo para acessibilidade.
+L6-L14: Cabecalho da pagina com contexto e introducao do uso do capacete.
+L16-L42: Conteudo principal em tres cards:
+- inspecao
+- ajuste
+- uso no trabalho
+Cada card possui titulo e lista de orientacoes.
+L44-L48: Area de acao com botao de voltar para camera.
+L49-L50: Fecha componente.
+
+
+====================================================================
+3) src/GogglesGuidePage.js - Explicacao linha a linha
+====================================================================
+
+L1: Importa React.
+L3: Declara componente funcional GogglesGuidePage com prop onBack.
+L4-L5: Container semantico com titulo acessivel.
+L6-L13: Cabecalho com importancia do uso dos oculos na operacao da betoneira.
+L15-L41: Conteudo em tres cards:
+- importancia do EPI
+- ajuste/uso correto
+- cuidados de limpeza e substituicao
+L43-L47: Botao para voltar para camera.
+L48-L49: Fecha componente.
+
+
+====================================================================
+4) src/styles.css - Explicacao linha a linha/por bloco direto
+====================================================================
+
+L1: Comentario de identificacao do arquivo.
+
+L3-L11: Base da pagina (body/html):
+- remove margens
+- ocupa tela inteira
+- esconde overflow
+- fundo preto
+
+L13-L20: .app-shell:
+- container fixo
+- altura 200vh para suportar transicao vertical
+- transicao suave
+
+L22-L24: .app-shell.show-guide-page:
+- desloca para cima 100vh para mostrar a pagina guia
+
+L26-L34: #camera-container:
+- camada fixa da camera em tela cheia
+
+L36-L44: #videoElement:
+- video absoluto preenchendo toda a tela
+- object-fit cover para manter enquadramento
+
+L46-L54: .cube-overlay:
+- define tamanho do cubo
+- ativa transformacao 3D
+- animacao de giro
+- sem interacao direta
+
+L56-L64: .cube-controls:
+- centraliza grupo (cubo + seta) no meio da tela
+
+L66-L75: .cube-button:
+- area clicavel do cubo
+- sem borda/fundo
+
+L77-L87: .cube-next-button:
+- botao circular da seta
+- estilo visual e cursor
+
+L89-L91: Estado ativo da seta (leve escala ao toque).
+
+L93-L97: .cube-face:
+- define face base do cubo
+
+L99-L103: Estilo amarelo do cubo (capacete).
+L105-L109: Estilo vermelho do cubo (oculos).
+
+L111-L133: Transformacoes 3D das seis faces (frente, tras, direita, esquerda, topo, base).
+
+L135-L143: @keyframes cube-spin:
+- anima o cubo girando no eixo Y
+
+L145-L152: .detected-message:
+- mensagem principal no topo central
+
+L154-L166: .controls-panel:
+- painel de upload/status
+- no topo direito
+- cor escura transluzida para contraste
+
+L168-L172: Estilo do label do painel.
+L174-L176: Input file ocupa largura total.
+L178-L182: Mensagens auxiliares do painel.
+
+L184-L194: .guide-page-wrapper:
+- camada da pagina guia posicionada abaixo da viewport
+- scroll proprio
+- nao clicavel por padrao
+
+L196-L198: Quando a guia esta ativa, habilita clique na camada.
+
+L200-L203: .helmet-page base (layout e cor de texto).
+L205-L208: Limita largura do cabecalho e centraliza.
+L210-L215: Estilo do kicker (subtitulo em caixa alta).
+L217-L220: Titulo principal responsivo.
+L222-L225: Paragrafo introdutorio.
+L227-L231: Grade de cards de conteudo.
+L233-L238: Card visual.
+L240-L243: Titulo de card.
+L245-L248: Lista de itens.
+L250-L253: Area de acoes (botao voltar).
+L255-L263: Estilo do botao de voltar.
+L265-L267: Hover do botao.
+
+
+====================================================================
+DICAS PARA ESTUDO
+====================================================================
+
+1) Comece por App.js na ordem:
+- estados
+- funcoes utilitarias
+- effect de inicializacao
+- JSX
+
+2) Depois leia styles.css em paralelo ao JSX para entender quem estiliza quem.
+
+3) Em seguida compare HelmetGuidePage e GogglesGuidePage para ver o padrao de pagina reutilizado.
+
+4) Se quiser, posso gerar uma versao 2 deste documento com:
+- fluxograma do ciclo de deteccao
+- diagrama de estados da UI
+- exercicios praticos para voce editar e testar.
