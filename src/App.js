@@ -3,18 +3,26 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // Imports TensorFlow.js e MobileNet: modelos de IA para embeddings e detecção
 import * as mobilenet from '@tensorflow-models/mobilenet';
 import * as tf from '@tensorflow/tfjs';
-// Imports páginas guia para capacete e óculos
 import HelmetGuidePage from './HelmetGuidePage';
 import GogglesGuidePage from './GogglesGuidePage';
+import TalabarteGuidePage from './TalabarteGuidePage';
+import TravaQuedasGuidePage from './TravaQuedasGuidePage';
 
 // Limite máximo de imagens de referência que o usuário pode carregar
 const MAX_REFERENCE_IMAGES = 5;
-// Threshold de similaridade: acima disso (57%), considera-se betoneira detectada
-const BETONEIRA_SIMILARITY_THRESHOLD = 0.57;
+// Threshold de similaridade: acima disso (57%), considera-se andaime detectado
+const ANDAIME_SIMILARITY_THRESHOLD = 0.57;
 // Estratégia 2: descarta comparações muito fracas antes da agregação
-const MIN_VALID_REFERENCE_SIMILARITY = 0.4;
+const MIN_VALID_REFERENCE_SIMILARITY = 0.5;
 // Estratégia 3: suaviza ruído com média móvel dos últimos frames
 const SIMILARITY_SMOOTHING_WINDOW = 4;
+// Melhor qualidade de captura para reduzir aparência "embaçada"
+const CAMERA_WIDTH_IDEAL = 1920;
+const CAMERA_HEIGHT_IDEAL = 1080;
+const CAMERA_WIDTH_MIN = 1280;
+const CAMERA_HEIGHT_MIN = 720;
+const CAMERA_FRAME_RATE = 24;
+const INFERENCE_INTERVAL_MS = 450;
 // Array de objetos de proteção (EPIs) disponíveis na app
 // Cada objeto tem id único, label exibido e classe CSS do cubo 3D
 const PPE_OBJECTS = [
@@ -24,9 +32,19 @@ const PPE_OBJECTS = [
     cubeClassName: 'cube-yellow',
   },
   {
-    id: 'goggles',
-    label: 'Oculos de protecao',
+    id: 'belt',
+    label: 'Cinto de seguranca',
     cubeClassName: 'cube-red',
+  },
+  {
+    id: 'lanyard',
+    label: 'Talabarte',
+    cubeClassName: 'cube-blue',
+  },
+  {
+    id: 'fall-arrest',
+    label: 'Trava-quedas',
+    cubeClassName: 'cube-green',
   },
 ];
 
@@ -73,6 +91,44 @@ function readImageFromFile(file) {
   });
 }
 
+function averageAndNormalizeEmbeddings(embeddings) {
+  const validEmbeddings = embeddings.filter(Boolean);
+
+  if (!validEmbeddings.length) {
+    return null;
+  }
+
+  if (validEmbeddings.length === 1) {
+    return normalizeVector(validEmbeddings[0]);
+  }
+
+  const vectorLength = validEmbeddings[0].length;
+  const summedVector = new Array(vectorLength).fill(0);
+
+  for (const embedding of validEmbeddings) {
+    for (let index = 0; index < vectorLength; index += 1) {
+      summedVector[index] += embedding[index];
+    }
+  }
+
+  const averagedVector = summedVector.map((value) => value / validEmbeddings.length);
+  return normalizeVector(averagedVector);
+}
+
+function aggregateSimilarities(similarities) {
+  if (!similarities.length) {
+    return 0;
+  }
+
+  const sorted = [...similarities].sort((a, b) => b - a);
+  const maxScore = sorted[0];
+  const topCount = Math.min(3, sorted.length);
+  const topMean = sorted.slice(0, topCount).reduce((sum, value) => sum + value, 0) / topCount;
+
+  // Dá mais peso ao melhor match, mas mantém estabilidade com os top-N.
+  return 0.8 * maxScore + 0.2 * topMean;
+}
+
 export default function App() {
   // === REFS (referências persistentes entre renders) ===
   // Ref para acessar o elemento <video> da câmera
@@ -113,7 +169,7 @@ export default function App() {
   const [activeGuideId, setActiveGuideId] = useState(null);
   // Mensagem de status no painel de controle (sobre imagens de referência)
   const [referenceMessage, setReferenceMessage] = useState(
-    'Carregue ate 5 imagens de betoneira para calibrar a deteccao.'
+    'Carregue ate 5 imagens de andaime para calibrar a deteccao.'
   );
   // Referência rápida ao objeto EPI atual baseado em selectedObjectIndex
   const currentObject = PPE_OBJECTS[selectedObjectIndex];
@@ -140,7 +196,7 @@ export default function App() {
     similarityHistoryRef.current = [];
     setSimilarityScore(0);
     setShowArCube(false);
-    setDetectedMessage('Deteccao reiniciada. Aponte para a betoneira.');
+    setDetectedMessage('Deteccao reiniciada. Aponte para o andaime.');
 
     // Reinicia o loop de predição imediatamente.
     if (restartDetectionLoopRef.current) {
@@ -165,26 +221,30 @@ export default function App() {
       return null;
     }
 
-    // tf.tidy() garante que tensores temporários sejam liberados da memória
-    const embeddingTensor = tf.tidy(() => {
-      // Converte pixels da imagem em tensor (altura, largura, 3 canais RGB)
-      const imageTensor = tf.browser.fromPixels(element).toFloat();
-      // Redimensiona para 224x224 (tamanho que MobileNet espera)
-      const resized = tf.image.resizeBilinear(imageTensor, [224, 224]);
-      // Adiciona dimensão de batch (quantidade de imagens processadas)
-      // MobileNet espera entrada com formato: [batch, altura, largura, 3]
-      const batched = resized.expandDims(0);
-      // Executa o modelo: retorna embedding (vetor de features)
-      return embeddingModelRef.current.infer(batched, true);
-    });
+    async function extractEmbedding(source) {
+      // tf.tidy() garante que tensores temporários sejam liberados da memória
+      const embeddingTensor = tf.tidy(() => {
+        // Converte pixels da imagem em tensor (altura, largura, 3 canais RGB)
+        const imageTensor = tf.browser.fromPixels(source).toFloat();
+        // Redimensiona para 224x224 (tamanho que MobileNet espera)
+        const resized = tf.image.resizeBilinear(imageTensor, [224, 224]);
+        // Adiciona dimensão de batch (quantidade de imagens processadas)
+        // MobileNet espera entrada com formato: [batch, altura, largura, 3]
+        const batched = resized.expandDims(0);
+        // Executa o modelo: retorna embedding (vetor de features)
+        return embeddingModelRef.current.infer(batched, true);
+      });
 
-    // Extrai dados do tensor em array JavaScript
-    const embeddingData = await embeddingTensor.data();
-    // Libera a memória do tensor
-    embeddingTensor.dispose();
+      const embeddingData = await embeddingTensor.data();
+      embeddingTensor.dispose();
+      return Array.from(embeddingData);
+    }
 
-    // Retorna embedding normalizado (magnitude 1)
-    return normalizeVector(Array.from(embeddingData));
+    // Como o andaime ocupa quase toda a imagem, prioriza o frame completo.
+    // Isso reduz ruído de recortes laterais e melhora consistência do embedding.
+    const embeddings = [await extractEmbedding(element)];
+
+    return averageAndNormalizeEmbeddings(embeddings);
   }, []);
 
   // Handler para upload de imagens de referência
@@ -237,7 +297,7 @@ export default function App() {
       // Atualiza mensagem com sucesso
       setReferenceMessage(
         `${embeddings.length} imagem(ns) carregada(s). Similaridade minima: ${Math.round(
-          BETONEIRA_SIMILARITY_THRESHOLD * 100
+          ANDAIME_SIMILARITY_THRESHOLD * 100
         )}%`
       );
     } catch (uploadError) {
@@ -309,7 +369,7 @@ export default function App() {
       // ====== THROTTLE ======
       // Limita inferências para não sobrecarregar o navegador/mobile
       // Máximo 1 predicão a cada 450ms (reduz CPU/GPU load)
-      if (now - lastInferenceTimeRef.current < 450 || isInferenceRunningRef.current) {
+      if (now - lastInferenceTimeRef.current < INFERENCE_INTERVAL_MS || isInferenceRunningRef.current) {
         // Se não passou tempo suficiente ou já está rodando, só reagenda
         scheduleNextDetection();
         return;
@@ -346,11 +406,7 @@ export default function App() {
             : similarities;
 
           if (similaritiesForAggregation.length) {
-            const sum = similaritiesForAggregation.reduce(
-              (accumulator, score) => accumulator + score,
-              0
-            );
-            bestSimilarity = sum / similaritiesForAggregation.length;
+            bestSimilarity = aggregateSimilarities(similaritiesForAggregation);
             hasSimilaritySample = true;
           }
         }
@@ -383,14 +439,14 @@ export default function App() {
       // Evita poluir o console logando a cada frame
       // Só loga a cada 1 segundo (1000ms)
       if (now - lastLogTimeRef.current > 1000) {
-        console.log('Betoneira similarity:', bestSimilarity);
+        console.log('Andaime similarity:', bestSimilarity);
         lastLogTimeRef.current = now;
       }
 
       // ====== DECISION & LOCKING ======
       if (isMounted) {
         // Verifica se passou do threshold
-        const isDetected = bestSimilarity >= BETONEIRA_SIMILARITY_THRESHOLD;
+        const isDetected = bestSimilarity >= ANDAIME_SIMILARITY_THRESHOLD;
         // Flag: detectou AGORA pela PRIMEIRA VEZ (não estava travado)
         const travouAgora = isDetected && !detectionLockedRef.current;
 
@@ -404,7 +460,7 @@ export default function App() {
           // Garante que o cubo 3D fica visível permanentemente
           setShowArCube(true);
           // Mensagem fixa de sucesso
-          setDetectedMessage('Deteccao confirmada. Selecao 3D fixa.');
+          setDetectedMessage('Andaime detectado. Selecao 3D fixa.');
         }
         
         // ====== EXIT EARLY (após travar) ======
@@ -417,7 +473,7 @@ export default function App() {
         // ====== UI UPDATE (apenas quando NÃO travado) ======
         // Monta mensagem para exibir
         const message = isDetected
-          ? `Betoneira detectada por similaridade (${Math.round(bestSimilarity * 100)}%)`
+          ? `Andaime detectado por similaridade (${Math.round(bestSimilarity * 100)}%)`
           : 'Sem similaridade suficiente com as referencias.';
 
         // Atualiza UI com novo score e status (reage à detectação dinâmica)
@@ -463,11 +519,73 @@ export default function App() {
     // ====== INIT SEQUENCE ======
     // Carrega modelo e inicia fluxo de câmera
     async function loadModelAndStartVideo() {
+      async function applyBestEffortCameraTuning(stream) {
+        const [videoTrack] = stream.getVideoTracks();
+        if (!videoTrack || !videoTrack.getCapabilities) {
+          return;
+        }
+
+        const capabilities = videoTrack.getCapabilities();
+        const constraints = {
+          advanced: [],
+        };
+
+        // Mantém foco contínuo quando o dispositivo suportar.
+        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes('continuous')) {
+          constraints.advanced.push({ focusMode: 'continuous' });
+        }
+
+        if (
+          typeof capabilities.sharpness?.max === 'number' &&
+          typeof capabilities.sharpness?.min === 'number'
+        ) {
+          constraints.advanced.push({ sharpness: capabilities.sharpness.max });
+        }
+
+        if (
+          typeof capabilities.contrast?.max === 'number' &&
+          typeof capabilities.contrast?.min === 'number'
+        ) {
+          const contrastMid = (capabilities.contrast.max + capabilities.contrast.min) / 2;
+          constraints.advanced.push({ contrast: contrastMid });
+        }
+
+        if (typeof capabilities.zoom?.max === 'number' && typeof capabilities.zoom?.min === 'number') {
+          const suggestedZoom = Math.min(capabilities.zoom.max, Math.max(1, capabilities.zoom.min));
+          constraints.advanced.push({ zoom: suggestedZoom });
+        }
+
+        if (!constraints.advanced.length) {
+          return;
+        }
+
+        try {
+          await videoTrack.applyConstraints(constraints);
+        } catch (constraintError) {
+          console.warn('Nao foi possivel aplicar ajustes avancados de camera.', constraintError);
+        }
+      }
+
       try {
+        async function requestHighQualityCamera(preferEnvironment) {
+          const preferredFacingMode = preferEnvironment
+            ? { facingMode: { ideal: 'environment' } }
+            : {};
+
+          return navigator.mediaDevices.getUserMedia({
+            video: {
+              ...preferredFacingMode,
+              width: { ideal: CAMERA_WIDTH_IDEAL, min: CAMERA_WIDTH_MIN },
+              height: { ideal: CAMERA_HEIGHT_IDEAL, min: CAMERA_HEIGHT_MIN },
+              frameRate: { ideal: CAMERA_FRAME_RATE, max: 30 },
+            },
+          });
+        }
+
         // Aguarda TensorFlow estar pronto
         await tf.ready();
         // Carrega modelo MobileNet v1 (versão leve: alpha=0.5)
-        // Versão leve para rodar no navegador/mobile sem lag
+        // Usa o mesmo modelo em todos os dispositivos para manter consistência.
         embeddingModelRef.current = await mobilenet.load({
           version: 1,
           alpha: 0.5,
@@ -478,31 +596,15 @@ export default function App() {
         // Em desktop, prefere a principal; fallback para qualquer câmera
         let stream;
         try {
-          // Ideal: camera traseira (environment)
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: {
-                ideal: 'environment',
-              },
-              // Configura resolução ideal: 640x480
-              // MobileNet espera ~224x224, mas usar res maior melhora qualidade
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-              // Frame rate: ideal 24fps, máximo 30fps
-              frameRate: { ideal: 24, max: 30 },
-            },
-          });
+          // Ideal: camera traseira com resolução alta.
+          stream = await requestHighQualityCamera(true);
         } catch (cameraError) {
           // Fallback: camera frontal ou padrão (se traseira não existe)
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-              frameRate: { ideal: 24, max: 30 },
-            },
-          });
+          stream = await requestHighQualityCamera(false);
           console.warn('Camera traseira indisponivel, usando camera padrao.', cameraError);
         }
+
+        await applyBestEffortCameraTuning(stream);
 
         // Armazena stream em ref para poder parar tracks depois
         streamRef.current = stream;
@@ -653,10 +755,12 @@ export default function App() {
       {/* Aparece em overlay quando usuário clica no cubo 3D */}
       {/* app-shell adiciona classe show-guide-page que oculta camera-container */}
       <section className="guide-page-wrapper">
-        {/* Renderiza página guia correspondente ao objeto selecionado */}
-        {/* GogglesGuidePage ou HelmetGuidePage - passa closeGuidePage para "voltar" */}
-        {activeGuideId === 'goggles' ? (
+        {activeGuideId === 'belt' ? (
           <GogglesGuidePage onBack={closeGuidePage} />
+        ) : activeGuideId === 'lanyard' ? (
+          <TalabarteGuidePage onBack={closeGuidePage} />
+        ) : activeGuideId === 'fall-arrest' ? (
+          <TravaQuedasGuidePage onBack={closeGuidePage} />
         ) : (
           <HelmetGuidePage onBack={closeGuidePage} />
         )}

@@ -109,6 +109,18 @@ html {
   box-shadow: 0 0 18px rgba(224, 58, 58, 0.5);
 }
 
+.cube-overlay.cube-blue .cube-face {
+  background: rgba(45, 116, 255, 0.88);
+  border: 2px solid rgba(153, 194, 255, 0.96);
+  box-shadow: 0 0 18px rgba(45, 116, 255, 0.5);
+}
+
+.cube-overlay.cube-green .cube-face {
+  background: rgba(56, 180, 117, 0.88);
+  border: 2px solid rgba(163, 236, 198, 0.96);
+  box-shadow: 0 0 18px rgba(56, 180, 117, 0.5);
+}
+
 .cube-front {
   transform: translateZ(48px);
 }

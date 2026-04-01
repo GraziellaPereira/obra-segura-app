@@ -4,12 +4,12 @@ export default function HelmetGuidePage({ onBack }) {
   return (
     <section className="helmet-page" aria-labelledby="helmet-guide-title">
       <header className="helmet-header">
-        <p className="helmet-kicker">Seguranca na Obra</p>
-        <h1 id="helmet-guide-title">Como usar o capacete corretamente</h1>
+        <p className="helmet-kicker">Guia de EPI para Andaime</p>
+        <h1 id="helmet-guide-title">Capacete de seguranca em andaimes</h1>
         <p className="helmet-intro">
-          O capacete de seguranca reduz impactos na cabeca e protege contra queda
-          de materiais. Antes de entrar na obra, garanta que ele esteja ajustado,
-          sem danos e corretamente afivelado.
+          O capacete protege contra impactos e queda de objetos durante montagem,
+          deslocamento e trabalho sobre plataformas de andaime. O ajuste correto
+          e obrigatorio em toda a area de risco.
         </p>
       </header>
 
@@ -17,27 +17,27 @@ export default function HelmetGuidePage({ onBack }) {
         <article className="helmet-card">
           <h2>1. Inspecao antes do uso</h2>
           <ul>
-            <li>Verifique se ha trincas, amassados ou deformacoes na casca.</li>
-            <li>Confirme se a carneira interna esta firme e sem desgaste.</li>
-            <li>Nao use capacete vencido ou com historico de impacto forte.</li>
+            <li>Verifique casco, carneira e jugular sem trincas ou deformacoes.</li>
+            <li>Confirme data de validade e integridade dos pontos de fixacao.</li>
+            <li>Troque imediatamente apos impacto significativo.</li>
           </ul>
         </article>
 
         <article className="helmet-card">
           <h2>2. Ajuste correto na cabeca</h2>
           <ul>
-            <li>Ajuste a carneira para ficar firme, sem apertar excessivamente.</li>
-            <li>O capacete deve ficar nivelado, sem inclinar para tras.</li>
-            <li>Se houver jugular, mantenha-a fechada durante a atividade.</li>
+            <li>Ajuste a carneira para fixacao firme e confortavel.</li>
+            <li>Mantenha o capacete nivelado, sem deslocar para tras.</li>
+            <li>Use jugular fechada sempre que houver risco de queda.</li>
           </ul>
         </article>
 
         <article className="helmet-card">
-          <h2>3. Uso durante o trabalho</h2>
+          <h2>3. Boas praticas no andaime</h2>
           <ul>
-            <li>Mantenha o capacete durante toda permanencia na area de risco.</li>
-            <li>Nao perfure, pinte ou cole itens que comprometam a estrutura.</li>
-            <li>Armazene em local seco, longe de sol intenso e produtos quimicos.</li>
+            <li>Nao retire o capacete durante acesso por escadas e plataformas.</li>
+            <li>Nao perfure, pinte ou cole acessorios sem aprovacao tecnica.</li>
+            <li>Guarde em local seco, longe de calor intenso e produtos quimicos.</li>
           </ul>
         </article>
       </div>
